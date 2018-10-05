@@ -1,11 +1,13 @@
-'''
-AudioFrames
-'''
+"""
+Name: audioframes.py
+Author: Hrishikesh Adigal
+Red ID: 819708988
+"""
 
+# python imports
 import math
 import numpy as np
-import scipy.io.wavfile
-
+import scipy.io.wavfile as spw
 
 class AudioFrames:
     """AudioFrames
@@ -17,53 +19,23 @@ class AudioFrames:
         Create a stream of audio frames where each is in len_ms milliseconds long
         and frames are advanced by adv_ms.              
         """
-
-        self.len_ms = len_ms
-        self.adv_ms = adv_ms
-        self.offset = 0     # offset start of frames to sample N (currently unused
-        
-        # Set up audio file
+        # file params
         self.filename = filename
-        self.incomplete = False
+        self.adv_ms = adv_ms
+        self.len_ms = len_ms
+        self.count = 0 # iterator var
+        self.sp_rate, self.ch_data = spw.read(self.filename) # getting sample rate and data
+        self.total_data = int(self.ch_data.shape[0])
+        # self.total_data = len(self.ch_data)
+        self.len_n = int(self.sp_rate*(len_ms/1000)) # getting frames from sample using the frame len
+        self.adv_n = int(self.sp_rate*(adv_ms/1000)) #getting frames from sample using the adv frame len
+        # file param dictionary
+        self.param_dict = {filename:
+            {"adv_ms" : self.adv_ms,"len_ms":self.len_ms,"len_n":self.len_n,"adv_n":self.adv_n}}
 
-        # Determine which interface to use
-        self.init_scipywavfile()
-        
-        # Compute framing parameters in samples
-        self.adv_N = int(self.Fs * (self.adv_ms / 1000.0))
-        self.len_N = int(self.Fs * (self.len_ms / 1000.0))
-        
-        self.framedelta = np.timedelta64(adv_ms, 'ms')
-        self.cumoffset = np.timedelta64(0, 's')
-        
-        # Compute parameters related to frame overlap and skip
-        # number new samples each frame
-        self.nonoverlap_N = min([self.len_N - self.adv_N, self.len_N])
-        # number of samples from previous frame
-        self.overlap_N = max([self.len_N - self.adv_N, 0])
-        # number of samples needed to advance past the end of frame
-        # to the beginning of the next
-        self.next_frame_adv = max([0, self.adv_N - self.len_N])  
-        
-        self.current_sample = 0  # initial position
-        
-        self.repositioned = True  # Let iterator know that this will be first frame
-        
-        
-        
-    def init_scipywavfile(self):
-        "init_scipywavfile() - initialize scientific python wavfile interface"            
-                
-        # get data as memory mapped file
-        [self.Fs, self.data] = scipy.io.wavfile.read(self.filename, mmap=True)
-
-        self.samplesN = self.data.shape[0]
-        self.channels = 1 if len(self.data.shape) == 1 else self.data.shape[1] 
-        self.format = "WAV"
-            
     def get_framelen_samples(self):
-        "get_framelen_ms - Return frame length in samples"
-        return self.len_N
+        "get_framelen_samples - Return frame length in samples"
+        return self.sp_rate*self.len_ms/1000
     
     def get_framelen_ms(self):
         "get_framelen_ms - Return frame length in ms"
@@ -71,7 +43,7 @@ class AudioFrames:
     
     def get_frameadv_samples(self):
         "get_frameadv_ms - Return frame advance in samples"
-        return self.adv_N  
+        return self.sp_rate*self.adv_ms/1000
 
     def get_frameadv_ms(self):
         "get_frameadv_ms - Return frame advance in ms"
@@ -79,143 +51,83 @@ class AudioFrames:
     
     def get_Fs(self):
         "get_Fs() - Return sample rate"
-        return self.Fs
+        return self.sp_rate
     
     def __len__(self):
         "len() - number of frames"
-        
-        # Number of frames computation
-        remainingN = self.samplesN - self.offset  # account for possible non-zero start
-        #
-        if self.incomplete:
-            if self.interface == "SoundFileStream":
-                # Returns all possible frames
-                return math.ceil((remainingN-1)/ self.adv_N)
-            else:
-                return math.floor(remainingN / self.adv_N)
-        else:
-            # complete frames
-            # length of frame - advance can be subtracted from sample count and divided by
-            # advance
-            return math.floor((remainingN - (self.len_N - self.adv_N)) / self.adv_N);
+        # return len(self.frames)
+        return math.ceil(self.total_data/self.adv_n)
 
     def get_Nyquist(self):
-        return self.Fs/2.0
-    
-    def get_params(self):
-        "Return dict with file parameters"
+        """get_Nyquist - Return Nyquist rate (highest frequency that can
+        be represented with the sample rate. 
+        """
+        return self.sp_rate/2
         
-        params = {
-            "filename" : self.filename, 
-            "Fs" : self.Fs,
-            "samples" : self.samplesN,
-            "framing" : {"adv_ms" : self.adv_ms, "len_ms" : self.len_ms, 
-                         "adv_N":self.adv_N, "len_N" : self.len_N},
-            "format" : self.format
-            }
-        if self.use_soundfile:
-            params["subtype"] = self.subtype
-            
-        return params
+    def get_params(self):
+        """Return dictionary with file parameters
+            fields:
+                filename - name of sound file
+                Fs - sample rate
+                framing - nested dictionary with fields:
+                    adv_ms - frame advance in ms
+                    len_ms - frame length in ms
+                    adv_N, len_N - frame advance & length in samples
+        """
+        return self.param_dict
     
     def shape(self):
-        "shape() - shape of tensor generated by iterator"
-        return np.asarray([self.len_N, 1])
+        """shape() - shape of tensor generated by iterator
+        Returns a numpy array containing the dimensions of each frame.
+        
+        This will be useful later on.  Tensors are generalizations of
+        vectors and matrices (see Wolfram MathWorld for a concise definition)
+        and generally can be thought of as arbitrary-dimensioned matrices.
+        """
+        
+        # You can create a numpy array from list l with np.asarray(l)
+        return [self.len_n,1]
     
     def size(self):
-        "size() - number of elements in tensor generated by iterator"
-        return np.asarray(np.product(self.shape()))
+        """size() - Returns a Numpy array of size 1 with the number of elements 
+        in the tensor associated with each frame 
+        """
         
+        # You can create a numpy array from list l iwth np.asarray(l)
+        return self.len_n*1
+
     def __iter__(self):
         """"iter() - Return a frame iterator
-        WARNING:  Multiple iterators on same soundfile are not guaranteed to work as expected"""
+        (Multiple iterators on same soundfile are not guaranteed to work as expected)
+        """
+        # Implementation decision
+        # You can return self and implement a __next__(self) in this class
+        # or you can create and return an instance of an iteration class
+        # of your design that supports __next__(self).
+        return self
 
-        # Differs from assignment as this is derived from a reader
-        # that supports multiple file interfaces 
-        # (Works same way though - no change in API)
-        return scipywavefile_it(self)
+    def __next__(self):
+        """
+        Implemented the __next__() for the iterator method
+        returning the frame
+        """
+        if self.count >= len(self.ch_data):
+            raise StopIteration
+        else:
+            self.count += self.adv_n
+            startidx = self.count - self.adv_n
+            return self.get_data(startidx,self.len_n)
     
     def seek_sample(self, N):
         "seek_sample(N) - Next iterator will start with sample N"
-
-        if N > self.samplesN:
-            raise ValueError("File %s seek to sample {}:  past end of file {}"%(
-                self.filename, N, self.samplesN))
-        else:
-            # memory mapped, just set counter
-            self.current_sample = N
+        self.count = N-1
     
     def get_data(self, startidx, N):
         """get_data(startidx, N) - Retrieve N samples starting at startidx.
-        This has no side effects, the file position of iterators is unchanged
+        This has no side effects, the file position of iterators is unchanged.
+        Raises a ValueError if outside range of signal.
         """
-        if startidx > len(self):
-            raise ValueError("Read past end of data")
-        
-        stopidx = min(startidx+N, len(self))
-        if self.channels > 1:
-            data = self.data[startidx:stopidx,:]
+        if (startidx >= self.total_data) or (startidx < 0):
+            raise ValueError
         else:
-            data = self.data[startidx:stopidx]
-            
-        return data
-    
-    def seek_frame(self, N):
-        "seek_frame(N) - Next read will start at frame N"
-        raise NotImplemented()
-            
-class scipywavefile_it(object):
-    
-    def __init__(self, frameobj):
-        self.frameobj = frameobj
-        self.start_sample = frameobj.current_sample
-        self.current_sample = self.start_sample
-        
-    def __iter__(self):
-        return self
-    
-    def __next__(self):
-        "next() - Return next frame, offset (s), and absolute time (if available, otherwise None"
-        
-        # setup frame indices
-        start = self.current_sample
-        stop = start + self.frameobj.len_N
-        
-        # check for valid frame indices
-        
-        # start past end check
-        if start >= self.frameobj.samplesN:
-            raise StopIteration
-
-        # past end check
-        if stop > self.frameobj.samplesN:
-            # frame runs off end
-            if self.frameobj.incomplete:
-                # User wants the incomplete frame.  Set stop to last
-                # sample and set current_sample to trigger StopIteration
-                # on next call
-                stop = self.frameobj.samplesN
-                self.current_sample = self.frameobj.samplesN
-            else:
-                raise StopIteration    
-        else:               
-            self.current_sample = start + self.frameobj.adv_N
-        
-            
-        if self.frameobj.channels > 1:
-            frames = self.frameobj.data[start:stop,:]
-        else:
-            frames = self.frameobj.data[start:stop]
-
-        # frame data, frame offset (s) from start, frame start time 
-        return frames 
-        
-        
-            
-            
-            
-        
-    
-        
-        
-        
+            return self.ch_data[startidx:startidx+N]
