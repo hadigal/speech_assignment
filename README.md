@@ -1,1 +1,1 @@
-- This repo maintains the assignments for course CS602: Speech Processing using Deep Learning course.
+- This repo maintains the assignments for course **CS602: Speech Processing using Deep Learning**.
